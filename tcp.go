@@ -4,13 +4,12 @@ import (
 	"go.k6.io/k6/js/modules"
 	"go.k6.io/k6/metrics"
 	"net"
+	"time"
 )
 
 func init() {
 	modules.Register("k6/x/tcp", new(TCP))
 }
-
-//type TCP struct{}
 
 type (
 	// RootModule is the global module instance that will create module
@@ -39,10 +38,22 @@ var (
 	_ modules.Module   = &RootModule{}
 )
 
-var (
-	_ modules.Instance = &ModuleInstance{}
-	_ modules.Module   = &RootModule{}
-)
+func (*RootModule) NewModuleInstance(vu modules.VU) modules.Instance {
+	return &ModuleInstance{
+		vu:  vu,
+		tcp: &TCP{vu: vu},
+	}
+}
+
+type TCP struct {
+	vu modules.VU
+}
+
+func (mi *ModuleInstance) Exports() modules.Exports {
+	return modules.Exports{
+		Default: mi.tcp,
+	}
+}
 
 func (tcp *TCP) Connect(addr string) (net.Conn, error) {
 	conn, err := net.Dial("tcp", addr)
@@ -59,6 +70,14 @@ func (tcp *TCP) Write(conn net.Conn, data []byte) error {
 		return err
 	}
 
+	metrics.PushIfNotDone(tcp.vu.Context(), tcp.vu.State().Samples, metrics.Sample{
+		TimeSeries: metrics.TimeSeries{
+			Metric: metrics.BuiltinMetrics.DataReceived,
+			Tags:   nil,
+		},
+		Time:  time.Now(),
+		Value: float64(len(data)),
+	})
 	return nil
 }
 
