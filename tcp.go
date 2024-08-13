@@ -25,6 +25,10 @@ type (
 	}
 )
 
+type TCP struct {
+	vu modules.VU
+}
+
 type Socket struct {
 	builtinMetrics *metrics.BuiltinMetrics
 }
@@ -43,10 +47,6 @@ func (*RootModule) NewModuleInstance(vu modules.VU) modules.Instance {
 		vu:  vu,
 		tcp: &TCP{vu: vu},
 	}
-}
-
-type TCP struct {
-	vu modules.VU
 }
 
 func (mi *ModuleInstance) Exports() modules.Exports {
@@ -72,7 +72,7 @@ func (tcp *TCP) Write(conn net.Conn, data []byte) error {
 
 	metrics.PushIfNotDone(tcp.vu.Context(), tcp.vu.State().Samples, metrics.Sample{
 		TimeSeries: metrics.TimeSeries{
-			Metric: metrics.BuiltinMetrics.DataReceived,
+			Metric: socket.builtinMetrics.DataReceived,
 			Tags:   nil,
 		},
 		Time:  time.Now(),
@@ -81,13 +81,21 @@ func (tcp *TCP) Write(conn net.Conn, data []byte) error {
 	return nil
 }
 
-func (tcp *TCP) Read(conn net.Conn, size int) ([]byte, error) {
-	buf := make([]byte, size)
-	_, err := conn.Read(buf)
+func (tcp *TCP) Read(conn net.Conn, size int, timeout_opt ...int) ([]byte, error) {
+	timeout_ms := 0
+	if len(timeout_opt) > 0 {
+		timeout_ms = timeout_opt[0]
+	}
+	err := conn.SetReadDeadline(time.Now().Add(time.Millisecond * time.Duration(timeout_ms)))
 	if err != nil {
 		return nil, err
 	}
-	return buf, nil
+	buf := make([]byte, size)
+	n, err := conn.Read(buf)
+	if err != nil {
+		return nil, err
+	}
+	return buf[:n], nil
 }
 
 func (tcp *TCP) WriteLn(conn net.Conn, data []byte) error {
